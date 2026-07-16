@@ -1,0 +1,3213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+name="viewport"
+content="width=device-width,initial-scale=1,user-scalable=no">
+
+<title>Forbidden Forest</title>
+
+<style>
+
+html,
+body{
+
+margin:0;
+overflow:hidden;
+
+background:#050706;
+
+font-family:monospace;
+
+user-select:none;
+-webkit-user-select:none;
+-webkit-touch-callout:none;
+
+touch-action:none;
+
+}
+
+canvas{
+
+display:block;
+
+image-rendering:pixelated;
+
+}
+
+#hud{
+
+position:fixed;
+
+top:10px;
+left:10px;
+
+color:white;
+
+z-index:100;
+
+font-size:18px;
+
+}
+
+#location{
+
+font-size:18px;
+
+}
+
+#hp{
+
+margin-top:4px;
+
+}
+
+#party{
+
+margin-top:4px;
+
+}
+
+#msg{
+
+margin-top:8px;
+
+font-size:14px;
+
+max-width:280px;
+
+color:#cccccc;
+
+}
+
+#controls{
+
+position:fixed;
+
+left:20px;
+bottom:20px;
+
+z-index:100;
+
+}
+
+#controls button{
+
+width:70px;
+height:70px;
+
+font-size:28px;
+
+background:#2b2b2b;
+
+color:white;
+
+border:2px solid #666;
+
+}
+
+#actionButtons{
+
+position:fixed;
+
+right:20px;
+bottom:20px;
+
+display:flex;
+
+flex-direction:column;
+
+gap:10px;
+
+z-index:100;
+
+}
+
+#actionButtons button{
+
+width:90px;
+height:70px;
+
+font-size:20px;
+
+background:#33281d;
+
+color:white;
+
+border:2px solid #88704f;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div id="hud">
+
+<div id="location">
+Temple
+</div>
+
+<div id="hp">
+HP: 100 / 100
+</div>
+
+<div id="party">
+Party: 5
+</div>
+
+<div id="msg">
+Enter the forest.
+</div>
+
+</div>
+
+<div id="controls">
+
+<div>
+
+<button id="up">▲</button>
+
+<div>
+<button id="down">▼</button>
+</div>
+
+</div>
+
+<div>
+
+<button id="left">◀</button>
+
+<button id="right">▶</button>
+
+</div>
+
+</div>
+
+<div id="actionButtons">
+
+<button id="attackBtn">
+⚔
+</button>
+
+<button id="dodgeBtn">
+🛡
+</button>
+
+<button id="skillBtn">
+✨
+</button>
+
+</div>
+
+<script type="module">
+
+import * as THREE from
+"https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js";
+
+try{
+
+if(screen.orientation?.lock){
+
+screen.orientation
+.lock("landscape")
+.catch(()=>{});
+
+}
+
+}catch(e){}
+
+// ================= SCENE =================
+
+const scene =
+new THREE.Scene();
+
+scene.background =
+new THREE.Color(0x3b2b3d);
+
+scene.fog =
+new THREE.Fog(
+0x3b2b3d,
+25,
+220
+);
+
+// ================= CAMERA =================
+
+const camera =
+new THREE.PerspectiveCamera(
+75,
+innerWidth / innerHeight,
+0.1,
+250
+);
+
+camera.position.set(
+0,
+1.8,
+0
+);
+
+// ================= RENDERER =================
+
+const renderer =
+new THREE.WebGLRenderer({
+
+antialias:false
+
+});
+
+renderer.setSize(
+innerWidth,
+innerHeight
+);
+
+document.body.appendChild(
+renderer.domElement
+);
+
+// ================= LIGHT =================
+
+const ambient =
+new THREE.AmbientLight(
+0xffb27a,
+1.5
+);
+
+scene.add(ambient);
+
+const moonLight =
+new THREE.DirectionalLight(
+0xff9966,
+0.7
+);
+
+moonLight.position.set(
+40,
+60,
+20
+);
+
+moonLight.position.set(
+-60,
+40,
+-80
+);
+
+let gameState="playing";
+
+// ================= PLAYER =================
+
+let player = {
+
+x:0,
+y:1.8,
+z:0,
+
+rot:0,
+
+speed:0.11,
+
+overHp:20,
+maxOverHp:20,
+
+hp:100,
+
+maxHp:100,
+
+attackCd:0,
+
+dodgeCd:0,
+
+skillCd:0
+
+};
+
+// ================= INPUT =================
+
+let input = {
+
+up:false,
+
+down:false,
+
+left:false,
+
+right:false
+
+};
+
+// ================= HUD =================
+
+const hpDiv =
+document.getElementById("hp");
+
+const partyDiv =
+document.getElementById("party");
+
+const msgDiv =
+document.getElementById("msg");
+
+const attackBtn =
+document.getElementById("attackBtn");
+
+const dodgeBtn =
+document.getElementById("dodgeBtn");
+
+const skillBtn =
+document.getElementById("skillBtn");
+
+const colliders = [];
+
+// ================= MAKE BOX =================
+
+function makeBox(
+w,h,d,
+color,
+x=0,y=0,z=0,
+solid=false
+){
+
+const mesh =
+new THREE.Mesh(
+new THREE.BoxGeometry(w,h,d),
+new THREE.MeshLambertMaterial({
+color
+})
+);
+
+mesh.position.set(x,y,z);
+
+scene.add(mesh);
+
+
+if(solid){
+
+colliders.push({
+x,
+z,
+w,
+d
+});
+
+}
+
+return mesh;
+
+}
+
+const floor = makeBox(
+220,
+0.2,
+500,
+0x243020,
+0,
+-0.1,
+-170
+);
+
+// ===== MAP BORDER =====
+
+// Tường trái
+makeBox(
+2,20,500,
+0x2b2b2b,
+-110,10,-170,
+true
+);
+
+// Tường phải
+makeBox(
+2,20,500,
+0x2b2b2b,
+110,10,-170,
+true
+);
+
+// Tường trước
+makeBox(
+220,20,2,
+0x2b2b2b,
+0,10,80,
+true
+);
+
+// Tường sau
+makeBox(
+220,20,2,
+0x2b2b2b,
+0,10,-420,
+true
+);
+
+// ================= TEMPLE =================
+
+// sân đá
+makeBox(40,0.5,40,0x777777,0,0.25,20);
+
+// nền
+makeBox(26,1,26,0x6b6b6b,0,0.5,20);
+
+// ===== TƯỜNG TEMPLE (4 mặt) =====
+
+// tường sau
+makeBox(20,10,1,0x675542,0,5.5,30,true);
+
+// tường trái
+makeBox(1,10,20,0x675542,-10,5.5,20,true);
+
+// tường phải
+makeBox(1,10,20,0x675542,10,5.5,20,true);
+
+// tường trước (chia làm 2 để chừa cửa)
+makeBox(7,10,1,0x675542,-6.5,5.5,10,true);
+makeBox(7,10,1,0x675542,6.5,5.5,10,true);
+
+// cửa
+makeBox(6,7,1,0x2b1b16,0,3.5,10);
+
+// ===== MÁI CAO HƠN =====
+makeBox(24,2,24,0x35241a,0,11,20);
+
+// cột
+makeBox(2,8,2,0x8c8c8c,-5,4,10,true);
+makeBox(2,8,2,0x8c8c8c,5,4,10,true);
+
+// bậc thềm
+makeBox(10,0.5,5,0x999999,0,0.3,5);
+
+// sân trước
+makeBox(60,0.1,60,0x666666,0,0.05,20);
+
+msgDiv.innerText =
+"Master Daun watches over the party from the temple.";
+
+// ================= WORLD =================
+
+const trees = [];
+
+function tree(x,z){
+
+colliders.push({
+x:x,
+z:z,
+w:2,
+d:2
+});
+
+const trunk =
+makeBox(
+0.8,
+4.5,
+0.8,
+0x4a311c,
+x,
+2.2,
+z
+);
+
+const leaves =
+makeBox(
+3.5,
+3.5,
+3.5,
+0x18351b,
+x,
+5.2,
+z
+);
+
+trees.push({
+x,
+z,
+trunk,
+leaves
+});
+
+}
+
+// ================= FOREST =================
+
+for(let x=-100;x<=-12;x+=6){
+    for(let z=-400;z<=60;z+=6){
+        tree(
+            x+(Math.random()-0.5)*2,
+            z+(Math.random()-0.5)*2
+        );
+    }
+}
+
+for(let x=12;x<=100;x+=6){
+    for(let z=-400;z<=60;z+=6){
+        tree(
+            x+(Math.random()-0.5)*2,
+            z+(Math.random()-0.5)*2
+        );
+    }
+}
+
+// Temple courtyard
+
+makeBox(
+22,
+0.15,
+18,
+0x5f5f5f,
+0,
+0.05,
+8
+);
+
+// Main road
+
+makeBox(
+8,
+0.05,
+1100,
+0x4a4237,
+0,
+0,
+-520
+);
+
+// Forest gate
+
+makeBox(
+8,
+5,
+1,
+0x4d3625,
+0,
+2.5,
+-24
+);
+
+makeBox(
+1,
+5,
+2,
+0x4d3625,
+-4,
+2.5,
+-24
+);
+
+makeBox(
+1,
+5,
+2,
+0x4d3625,
+4,
+2.5,
+-24
+);
+
+function buildForestEntrance(){
+
+    // cổng rừng tại đầu Dark Forest
+    makeBox(
+        10,
+        8,
+        2,
+        0x4a2e18,
+        0,
+        4,
+        -70
+    );
+
+    makeBox(
+        2,
+        9,
+        2,
+        0x665544,
+        -6,
+        4,
+        -70,
+        true
+    );
+
+    makeBox(
+        2,
+        9,
+        2,
+        0x665544,
+        6,
+        4,
+        -70,
+        true
+    );
+
+    makeBox(
+        20,
+        0.2,
+        10,
+        0x555555,
+        0,
+        0.1,
+        -65
+    );
+
+}
+
+function buildDeadForest(){
+
+    for(let i=0;i<40;i++){
+
+        let x =
+        (Math.random()-0.5)*50;
+
+        let z =
+        -150 - Math.random()*70;
+
+
+        makeBox(
+            0.8,
+            5,
+            0.8,
+            0x333333,
+            x,
+            2.5,
+            z
+        );
+
+
+        makeBox(
+            2,
+            0.15,
+            1,
+            0x999999,
+            x+1,
+            0.1,
+            z+1
+        );
+
+    }
+
+}
+
+function buildShrine(){
+
+    const z = -260;
+
+
+    makeBox(
+        40,
+        0.2,
+        40,
+        0x777777,
+        0,
+        0,
+        z
+    );
+
+
+    makeBox(
+        18,
+        8,
+        18,
+        0x665544,
+        0,
+        4,
+        z
+    );
+
+
+    makeBox(
+        22,
+        1,
+        22,
+        0x332211,
+        0,
+        9,
+        z
+    );
+
+
+    // torii
+
+    makeBox(
+        12,
+        0.5,
+        1,
+        0xaa2200,
+        0,
+        6,
+        z+15
+    );
+
+
+    makeBox(
+        1,
+        6,
+        1,
+        0xaa2200,
+        -5,
+        3,
+        z+15
+    );
+
+
+    makeBox(
+        1,
+        6,
+        1,
+        0xaa2200,
+        5,
+        3,
+        z+15
+    );
+
+}
+
+let statueParts=[];
+
+
+function buildStatueArea(){
+
+    const z=-360;
+
+
+    makeBox(
+        90,
+        0.2,
+        90,
+        0x777777,
+        0,
+        0,
+        z
+    );
+
+
+    statueParts.push(
+
+        makeBox(
+            12,
+            3,
+            12,
+            0x888888,
+            0,
+            1.5,
+            z
+        )
+
+    );
+
+
+    statueParts.push(
+
+        makeBox(
+            8,
+            16,
+            8,
+            0xbbbbbb,
+            0,
+            11,
+            z
+        )
+
+    );
+
+
+    statueParts.push(
+
+        makeBox(
+            7,
+            6,
+            7,
+            0xcccccc,
+            0,
+            22,
+            z
+        )
+
+    );
+
+
+    makeBox(
+        16,
+        3,
+        8,
+        0xbdbdbd,
+        0,
+        15,
+        z
+    );
+
+}
+
+let statueBroken=false;
+
+function breakStatue(){
+
+    if(statueBroken) return;
+
+    statueBroken=true;
+
+    for(const part of statueParts){
+        scene.remove(part);
+
+        createEffect(
+            part.position.x,
+            part.position.z,
+            0xffffff,
+            1,
+            40
+        );
+    }
+}
+
+function checkCollision(x,z){
+
+for(const c of colliders){
+
+if(
+Math.abs(x-c.x)<c.w/2+0.5 &&
+Math.abs(z-c.z)<c.d/2+0.5
+){
+
+return true;
+
+}
+
+}
+
+return false;
+
+}
+
+// ================= PLAYER SPAWN =================
+
+player.x = 0;
+player.z = 10;
+
+camera.position.set(
+player.x,
+player.y,
+player.z
+);
+
+msgDiv.innerText =
+"Talk to Master Daun before entering the forest.";
+
+// ================= PARTY =================
+
+const party = [
+
+{
+
+id:"leader",
+
+name:"Kael",
+
+gender:"Male",
+
+role:"Leader",
+
+job:"Vanguard",
+
+hp:180,
+maxHp:180,
+
+atk:22,
+
+alive:true,
+
+x:0,
+z:9
+
+},
+
+{
+
+id:"player",
+
+name:"Alex",
+
+overHp:20,
+maxOverHp:20,
+
+gender:"Unknown",
+
+role:"Explorer",
+
+job:"Swordsman",
+
+hp:100,
+maxHp:100,
+
+atk:14,
+
+alive:true,
+
+player:true,
+
+x:0,
+z:12
+
+},
+
+{
+
+id:"priest",
+
+name:"Elias",
+
+gender:"Male",
+
+role:"Guide",
+
+job:"Priest",
+
+hp:70,
+maxHp:70,
+
+atk:5,
+
+alive:true,
+
+x:-2,
+z:15
+
+},
+
+{
+
+id:"archer",
+
+name:"Luna",
+
+gender:"Female",
+
+role:"Archer",
+
+job:"Archer",
+
+hp:90,
+maxHp:90,
+
+atk:13,
+
+alive:true,
+
+x:2,
+z:15
+
+},
+
+{
+
+id:"mage",
+
+name:"Selene",
+
+gender:"Female",
+
+role:"Mage",
+
+job:"Mage",
+
+hp:80,
+maxHp:80,
+
+atk:18,
+
+alive:true,
+
+x:1,
+z:17
+
+}
+
+];
+
+// ================= MASTER =================
+
+const masterDaun = {
+
+name:"Master Daun",
+title:"Grand Master",
+
+hp:999,
+maxHp:999,
+
+alive:true,
+
+observeOnly:true,
+
+lastResort:true,
+
+appeared:false,
+active:false,
+timer:0,
+
+x:0,
+z:-2
+
+};
+
+// ================= CHARACTER MESH =================
+
+function createCharacter(bodyColor,headColor,longHair=false){
+
+    const group=new THREE.Group();
+
+    const body=new THREE.Mesh(
+        new THREE.BoxGeometry(0.9,1.3,0.6),
+        new THREE.MeshLambertMaterial({color:bodyColor})
+    );
+    body.position.y=1;
+    group.add(body);
+
+    const head=new THREE.Mesh(
+        new THREE.BoxGeometry(0.6,0.6,0.6),
+        new THREE.MeshLambertMaterial({color:headColor})
+    );
+    head.position.y=2;
+    group.add(head);
+
+    if(longHair){
+
+const hair=new THREE.Mesh(
+    new THREE.BoxGeometry(0.72,1.0,0.7),
+    new THREE.MeshLambertMaterial({
+        color:0x3a2213
+    })
+);
+
+hair.position.set(0,1.95,-0.18);
+
+group.add(hair);
+
+    }
+
+    return group;
+
+}
+
+// ================= SPAWN PARTY =================
+
+for (const p of party) {
+
+    if (p.player) continue; // Không tạo mesh cho player
+
+    let bodyColor = 0x666666;
+
+    if (p.role==="Leader") bodyColor=0x663333;
+    if (p.role==="Guide") bodyColor=0xddddaa;
+    if (p.role==="Archer") bodyColor=0x336633;
+    if (p.role==="Mage") bodyColor=0x553388;
+
+    p.mesh = createCharacter(
+        bodyColor,
+        0xffddbb,
+        p.gender==="Female"
+    );
+
+    p.mesh.position.set(p.x,0,p.z);
+    scene.add(p.mesh);
+}
+
+masterDaun.mesh =
+createCharacter(
+0xffffff,
+0xffddbb
+);
+
+masterDaun.mesh.position.set(
+masterDaun.x,
+0,
+masterDaun.z
+);
+
+scene.add(
+masterDaun.mesh
+);
+
+msgDiv.innerText =
+"Speak with Master Daun.";
+
+// ================= PARTY AI =================
+
+function updateParty(){
+
+    const playerMember = party.find(p=>p.player);
+    playerMember.x = player.x;
+    playerMember.z = player.z;
+
+    // ===== Leader đi theo đường rừng =====
+
+    if(!leader.path){
+
+leader.path=[
+    {x:0,z:9},
+    {x:0,z:-10},
+    {x:0,z:-35},
+    {x:0,z:-60},
+    {x:2,z:-90},
+    {x:-2,z:-130},
+    {x:0,z:-180},
+    {x:0,z:-230},
+    {x:0,z:-280}, // Ancient Shrine
+    {x:0,z:-330},
+    {x:0,z:-380},
+    {x:0,z:-430}  // Statue Area
+];
+
+        leader.pathIndex=0;
+    }
+
+    const targetPoint=leader.path[leader.pathIndex];
+
+    let dx=targetPoint.x-leader.x;
+    let dz=targetPoint.z-leader.z;
+    let dist=Math.hypot(dx,dz);
+
+    if(dist<1){
+
+        if(leader.pathIndex<leader.path.length-1)
+            leader.pathIndex++;
+
+    }else{
+
+        let nx=leader.x+dx/dist*0.05;
+        let nz=leader.z+dz/dist*0.05;
+
+        if(!checkCollision(nx,nz)){
+            leader.x=nx;
+            leader.z=nz;
+        }
+
+    }
+
+    leader.mesh.position.set(
+        leader.x,
+        0,
+        leader.z
+    );
+
+// ===== PARTY ĐÁNH EVELYN =====
+
+if(boss && boss.alive){
+
+for(const p of party){
+
+    if(!p.alive || p.player) continue;
+
+
+    let dist = Math.hypot(
+        boss.x - p.x,
+        boss.z - p.z
+    );
+
+
+    // chạy tới gần boss
+
+    if(dist > 2.5){
+
+        let dx = boss.x - p.x;
+        let dz = boss.z - p.z;
+
+        p.x += dx/dist * 0.06;
+        p.z += dz/dist * 0.06;
+
+    }
+    else{
+
+        boss.hp -= p.atk * 0.25;
+
+
+        createEffect(
+            boss.x,
+            boss.z,
+            0xffff55,
+            0.3,
+            10
+        );
+
+
+        msgDiv.innerText =
+        p.name+" attacks Evelyn!";
+
+    }
+
+
+    p.mesh.position.set(
+        p.x,
+        0,
+        p.z
+    );
+
+}
+
+}
+
+    // ===== NPC =====
+
+    for(const p of party){
+
+        if(!p.alive) continue;
+        if(p.player) continue;
+        if(p.role==="Leader") continue;
+
+        // tìm enemy gần nhất
+        let nearest=null;
+        let best=9999;
+
+        for(const e of enemies){
+
+            if(!e.alive) continue;
+
+            let d=Math.hypot(
+                e.x-p.x,
+                e.z-p.z
+            );
+
+            if(d<best){
+
+                best=d;
+                nearest=e;
+
+            }
+
+        }
+
+        // Có enemy -> tản ra đánh
+        if(nearest && best<8){
+
+            let ex=nearest.x-p.x;
+            let ez=nearest.z-p.z;
+            let ed=Math.hypot(ex,ez);
+
+            if(ed>0.1){
+
+                let nx=p.x+ex/ed*0.06;
+                let nz=p.z+ez/ed*0.06;
+
+                if(!checkCollision(nx,nz)){
+                    p.x=nx;
+                    p.z=nz;
+                }
+
+            }
+
+            if(ed<2){
+
+                nearest.hp-=p.atk*0.25;
+
+                createEffect(
+                    nearest.x,
+                    nearest.z,
+                    0xffdd55,
+                    0.25,
+                    8
+                );
+
+                if(nearest.hp<=0){
+
+                    nearest.alive=false;
+                    scene.remove(nearest.mesh);
+
+                }
+
+            }
+
+        }else{
+
+            // đội hình theo leader
+            let ox=0;
+            let oz=3;
+
+            switch(p.role){
+
+                case "Guide":
+                    ox=-2;
+                    oz=2;
+                break;
+
+                case "Archer":
+                    ox=2;
+                    oz=2;
+                break;
+
+                case "Mage":
+                    ox=0;
+                    oz=4;
+                break;
+
+            }
+
+            let tx=leader.x+ox;
+            let tz=leader.z+oz;
+
+            let fx=tx-p.x;
+            let fz=tz-p.z;
+            let fd=Math.hypot(fx,fz);
+
+            if(fd>0.25){
+
+                let nx=p.x+fx/fd*0.05;
+                let nz=p.z+fz/fd*0.05;
+
+                if(!checkCollision(nx,nz)){
+                    p.x=nx;
+                    p.z=nz;
+                }
+
+            }
+
+        }
+
+        p.mesh.position.set(
+            p.x,
+            0,
+            p.z
+        );
+
+    }
+
+}
+
+// ================= LEADER =================
+
+const leader =
+party.find(
+p=>p.role==="Leader"
+);
+
+leader.followPlayer = false;
+
+leader.isFront = true;
+
+// ================= CHARACTER SKILLS =================
+
+const skills = {
+
+leader:{
+
+name:"Iron Break",
+
+type:"physical",
+
+damage:42,
+
+cooldown:180,
+
+effect:"Heavy sword strike"
+
+},
+
+player:{
+
+name:"Focus Step",
+
+type:"support",
+
+cooldown:150,
+
+effect:"Increase dodge for a short time"
+
+},
+
+priest:{
+
+name:"Prayer",
+
+type:"support",
+
+heal:30,
+
+cooldown:300,
+
+effect:"Heal one ally"
+
+},
+
+archer:{
+
+name:"Piercing Shot",
+
+type:"physical",
+
+damage:28,
+
+cooldown:120,
+
+effect:"Arrow pierces multiple enemies"
+
+},
+
+mage:{
+
+name:"Shadow Edge",
+
+type:"magic",
+
+damage:24,
+
+cooldown:150,
+
+effect:"Dark blade"
+
+}
+
+};
+
+function createCorpse(x,z){
+
+    const deadGroup = new THREE.Group();
+
+    // vũng máu
+    const bloodPool = new THREE.Mesh(
+        new THREE.BoxGeometry(2.5,0.02,2.5),
+        new THREE.MeshLambertMaterial({
+            color:0xaa0000
+        })
+    );
+    bloodPool.position.set(0,0.01,0);
+    deadGroup.add(bloodPool);
+
+    // thân nát
+    const crushedBody = new THREE.Mesh(
+        new THREE.BoxGeometry(1.4,0.2,0.8),
+        new THREE.MeshLambertMaterial({
+            color:0x550000
+        })
+    );
+    crushedBody.position.set(0,0.12,0);
+    deadGroup.add(crushedBody);
+
+    // đầu
+    const head = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35,0.35,0.35),
+        new THREE.MeshLambertMaterial({
+            color:0xffddbb
+        })
+    );
+    head.position.set(
+        0.55,
+        0.18,
+        0.18
+    );
+
+    deadGroup.add(head);
+
+    deadGroup.position.set(x,0,z);
+
+    scene.add(deadGroup);
+
+    return deadGroup;
+}
+
+const effects=[];
+
+function createEffect(x,z,color,size,life){
+
+    const mesh=new THREE.Mesh(
+        new THREE.SphereGeometry(size,8,8),
+        new THREE.MeshBasicMaterial({
+            color,
+            transparent:true
+        })
+    );
+
+    mesh.position.set(x,1,z);
+
+    scene.add(mesh);
+
+    effects.push({
+        mesh,
+        life
+    });
+
+}
+
+// ================= EFFECT UPDATE =================
+
+function updateEffects(){
+
+for(let i=effects.length-1;i>=0;i--){
+
+const e = effects[i];
+
+e.life--;
+
+e.mesh.scale.multiplyScalar(1.02);
+
+e.mesh.material.opacity *= 0.95;
+
+if(e.life<=0){
+
+scene.remove(e.mesh);
+
+effects.splice(i,1);
+
+}
+
+}
+
+}
+
+// ================= MASTER BLESSING =================
+
+let blessingDone = false;
+
+function masterBlessing(){
+
+    if(blessingDone) return;
+
+    const dist=Math.hypot(
+        player.x-masterDaun.x,
+        player.z-masterDaun.z
+    );
+
+    if(dist<4){
+
+        blessingDone=true;
+
+        createEffect(
+            masterDaun.x,
+            masterDaun.z,
+            0xffffff,
+            0.8,
+            45
+        );
+
+        msgDiv.innerText=
+        "Master Daun: Darkness cannot be defeated by strength alone.";
+
+        // lui về đền
+        masterDaun.x=0;
+        masterDaun.z=-2;
+
+        masterDaun.mesh.position.set(
+            masterDaun.x,
+            0,
+            masterDaun.z
+        );
+
+    }
+
+}
+
+function updateMasterDaun(){
+
+if(!masterDaun.appeared){
+
+    const partyHurt = party.some(
+        p=>!p.player && p.hp<p.maxHp
+    );
+
+    if(player.hp<=player.maxHp*0.5 && partyHurt){
+
+        masterDaun.appeared=true;
+        masterDaun.active=true;
+        masterDaun.timer=180;
+
+        masterDaun.x=player.x+2;
+        masterDaun.z=player.z;
+
+        masterDaun.mesh.position.set(
+            masterDaun.x,
+            0,
+            masterDaun.z
+        );
+
+        msgDiv.innerText="Master Daun joins the battle!";
+    }
+
+}
+
+    if(!masterDaun.active) return;
+
+    masterDaun.timer--;
+
+    for(const e of enemies){
+
+        if(!e.alive) continue;
+
+        const dx=e.x-masterDaun.x;
+        const dz=e.z-masterDaun.z;
+        const dist=Math.hypot(dx,dz);
+
+        if(dist<6){
+
+            e.hp-=4;
+
+            e.x+=dx/dist*0.5;
+            e.z+=dz/dist*0.5;
+
+            createEffect(
+                e.x,
+                e.z,
+                0xffffff,
+                0.5,
+                15
+            );
+
+            if(e.hp<=0){
+                e.alive=false;
+                scene.remove(e.mesh);
+            }
+        }
+    }
+
+    if(boss&&boss.alive){
+
+        const dx=boss.x-masterDaun.x;
+        const dz=boss.z-masterDaun.z;
+        const dist=Math.hypot(dx,dz);
+
+        if(dist<7){
+
+            boss.hp-=5;
+
+            boss.x+=dx/dist*0.6;
+            boss.z+=dz/dist*0.6;
+        }
+    }
+
+if(masterDaun.timer<=0 || masterDaun.hp<=0){
+
+    masterDaun.active=false;
+
+    scene.remove(masterDaun.mesh);
+
+    msgDiv.innerText="Master Daun disappears.";
+
+}
+
+}
+
+// ================= COMBAT STYLE =================
+
+leader.style = {
+
+weapon:"Greatsword",
+
+main:"Physical",
+
+magic:[
+"Iron Skin"
+]
+
+};
+
+player.style = {
+
+weapon:"Sword",
+
+main:"Balanced",
+
+magic:[
+"Focus Step"
+]
+
+};
+
+const priest =
+party.find(p=>p.id==="priest");
+
+priest.style = {
+
+weapon:"Wood Staff",
+
+main:"Support",
+
+magic:[
+"Prayer",
+"Light Ward"
+]
+
+};
+
+const archer =
+party.find(p=>p.id==="archer");
+
+archer.style = {
+
+weapon:"Longbow",
+
+main:"Ranged",
+
+magic:[
+"Wind Arrow"
+]
+
+};
+
+const mage =
+party.find(p=>p.id==="mage");
+
+mage.style = {
+
+weapon:"Short Staff",
+
+main:"Magic Sword",
+
+magic:[
+"Shadow Edge",
+"Dark Mist"
+]
+
+};
+
+// ================= SIMPLE MAGIC CAST =================
+
+function castMagic(caster,skill){
+
+switch(skill){
+
+case "Iron Skin":
+
+createEffect(
+caster.x,
+caster.z,
+0x555555,
+0.8,
+30
+);
+
+msgDiv.innerText =
+caster.name +
+" sword strike rocks breaking.";
+
+break;
+
+case "Focus Step":
+
+    player.speed=0.22;
+
+createEffect(
+caster.x,
+caster.z,
+0x4444aa,
+0.6,
+25
+);
+
+    setTimeout(()=>{
+        player.speed=0.11;
+    },3000);
+
+    msgDiv.innerText="undefined move silently.";
+break;
+
+case "Prayer":
+
+createEffect(
+caster.x,
+caster.z,
+0xffffcc,
+0.8,
+40
+);
+
+msgDiv.innerText =
+caster.name +
+" offers a quiet prayer.";
+
+break;
+
+case "Light Ward":
+
+createEffect(
+caster.x,
+caster.z,
+0xccccaa,
+1,
+35
+);
+
+msgDiv.innerText =
+"A holy barrier surrounds the party.";
+
+break;
+
+case "Wind Arrow":
+
+createEffect(
+caster.x,
+caster.z,
+0x446666,
+0.5,
+20
+);
+
+msgDiv.innerText =
+"A wind arrow cuts through the dark.";
+
+break;
+
+case "Shadow Edge":
+
+createEffect(
+caster.x,
+caster.z,
+0x332244,
+0.9,
+35
+);
+
+msgDiv.innerText =
+"A dark blade flashes.";
+
+break;
+
+case "Dark Mist":
+
+createEffect(
+caster.x,
+caster.z,
+0x111111,
+1.3,
+45
+);
+
+msgDiv.innerText =
+"Dark mist spreads through the forest.";
+
+break;
+
+}
+
+}
+
+// ================= ENEMIES =================
+
+const enemies = [];
+
+function spawnEnemy(x,z,type){
+
+const enemy = {
+
+type,
+
+hp:100,
+
+atk:8,
+
+attackCd:0,
+
+skillCd:180,
+
+speed:0.03,
+
+vision:14,
+blindTimer:0,
+
+x,
+z,
+
+alive:true
+
+};
+
+let color = 0x222222;
+
+switch(type){
+
+case "Wolf":
+color = 0x444444;
+break;
+
+case "Crawler":
+color = 0x222222;
+break;
+
+case "Shadow":
+color = 0x111133;
+break;
+
+}
+
+enemy.mesh = createCharacter(
+color,
+0x777777
+);
+
+enemy.mesh.position.set(
+x,
+0,
+z
+);
+
+scene.add(enemy.mesh);
+
+enemies.push(enemy);
+
+}
+
+// ================= FIRST ENEMIES =================
+
+// Area 1 - Forest Entrance
+spawnEnemy(-5,-45,"Wolf");
+spawnEnemy(4,-60,"Crawler");
+
+// Area 2 - Dark Forest
+spawnEnemy(-6,-100,"Wolf");
+spawnEnemy(6,-114,"Crawler");
+spawnEnemy(0,-128,"Shadow");
+
+// Area 3 - Dead Forest
+spawnEnemy(-8,-180,"Wolf");
+spawnEnemy(8,-194,"Wolf");
+spawnEnemy(0,-208,"Crawler");
+spawnEnemy(-4,-222,"Shadow");
+
+// Area 4 - Ancient Shrine
+spawnEnemy(-8,-280,"Wolf");
+spawnEnemy(8,-294,"Wolf");
+spawnEnemy(-4,-308,"Crawler");
+spawnEnemy(4,-322,"Crawler");
+spawnEnemy(0,-336,"Shadow");
+
+// Area 5 - Gần Evelyn (trước -360)
+spawnEnemy(-6,-340,"Wolf");
+spawnEnemy(-4,-345,"Crawler");
+spawnEnemy(4,-350,"Crawler");
+spawnEnemy(-8,-355,"Shadow");
+spawnEnemy(8,-358,"Shadow");
+
+// ================= ENEMY AI =================
+
+function updateEnemies(){
+
+    for(const e of enemies){
+
+        if(!e.alive) continue;
+
+        let target=player;
+        let best=Math.hypot(
+            player.x-e.x,
+            player.z-e.z
+        );
+
+        for(const p of party){
+
+            if(!p.alive) continue;
+
+            const d=Math.hypot(
+                p.x-e.x,
+                p.z-e.z
+            );
+
+            if(d<best){
+                best=d;
+                target=p;
+            }
+
+        }
+
+        const dx=target.x-e.x;
+        const dz=target.z-e.z;
+        const dist=Math.hypot(dx,dz);
+
+if(dist<e.vision){
+
+            e.x+=dx/dist*e.speed;
+            e.z+=dz/dist*e.speed;
+
+        }
+
+        e.mesh.position.set(e.x,0,e.z);
+
+        e.skillCd--;
+
+        if(e.skillCd<=0){
+
+            e.skillCd=240;
+
+            if(e.type==="Wolf" && dist<3){
+
+                e.x+=dx/dist*2;
+                e.z+=dz/dist*2;
+
+                if(target.player){
+                    damagePlayer(8);
+                }else{
+                    target.hp-=8;
+                }
+
+                msgDiv.innerText="Wolf leaps!";
+
+            }
+
+            if(e.type==="Crawler" && dist<8){
+
+                if(target.player){
+                    damagePlayer(3);
+                }else{
+                    target.hp-=3;
+                }
+
+                createEffect(
+                    target.x,
+                    target.z,
+                    0x00aa00,
+                    0.6,
+                    30
+                );
+
+                msgDiv.innerText="Crawler spits poison!";
+
+            }
+
+            if(e.type==="Shadow"){
+
+                e.x=target.x-1;
+                e.z=target.z;
+
+                createEffect(
+                    e.x,
+                    e.z,
+                    0x222266,
+                    0.8,
+                    20
+                );
+
+                msgDiv.innerText="Shadow teleports!";
+
+            }
+
+        }
+
+if(e.attackCd>0)
+    e.attackCd--;
+
+if(dist<1.5 && e.attackCd<=0){
+
+    e.attackCd=40;
+
+    if(target.player){
+        damagePlayer(e.atk);
+    }else{
+        target.hp-=e.atk;
+    }
+
+    msgDiv.innerText=e.type+" attacks!";
+}
+
+    }
+
+}
+
+// ================= AREA =================
+
+let area = 0;
+let eliasForestWarning = false;
+
+const areaNames = [
+
+"Temple",
+
+"Forest Entrance",
+
+"Dark Forest",
+
+"Dead Forest",
+
+"Ancient Shrine",
+
+"Statue Area"
+
+];
+
+function updateArea(){
+
+let newArea = 0;
+
+if(player.z < -25)
+newArea = 1;
+
+if(player.z < -70)
+newArea = 2;
+
+if(player.z < -150)
+newArea = 3;
+
+if(player.z < -215)
+newArea = 4;
+
+if(player.z < -300)
+newArea = 5;
+
+if(newArea !== area){
+
+area = newArea;
+
+document.getElementById("location").innerText =
+areaNames[area];
+
+msgDiv.innerText =
+"You entered " +
+areaNames[area] +
+".";
+
+}
+
+
+// Elias cảnh báo lần đầu vào Forest Entrance
+if(area===1 && !eliasForestWarning){
+
+    eliasForestWarning = true;
+
+    msgDiv.innerText =
+    "Elias: This place looks dangerous... Be careful.";
+
+}
+
+if(area===5 && !boss){
+
+    let dist = Math.hypot(
+        player.x,
+        player.z + 360
+    );
+
+    if(dist < 18){
+
+        spawnBoss();
+
+    }
+
+}
+
+}
+
+// ================= FIRST BOSS =================
+
+let boss = null;
+
+function spawnBoss(){
+
+    if(boss) return;
+
+    boss = {
+        name:"Evelyn",
+        hp:2500,
+        maxHp:2500,
+        atk:18,
+        attackCd:0,
+        dashCd:300,
+        quakeCd:420,
+
+aoeTick:0,
+
+vision:22,
+blindTimer:0,
+
+        speed:0.03,
+        phase:1,
+        alive:true,
+        x:0,
+        z:-360
+    };
+
+    boss.mesh=createCharacter(
+        0x225522,
+        0x88aa88,
+        true
+    );
+
+    boss.mesh.position.set(
+        boss.x,
+        0,
+        boss.z
+    );
+
+    scene.add(boss.mesh);
+
+    // tượng bị phá khi Evelyn thức tỉnh
+    breakStatue();
+
+    msgDiv.innerText =
+    "The statue cracks. Evelyn awakens.";
+
+}
+
+function updateBoss(){
+
+if(!boss) return;
+
+if(!boss.alive) return;
+
+boss.dashCd--;
+
+if(boss.dashCd<=0){
+
+    boss.dashCd=300;
+
+    boss.speed=0.09;
+
+    setTimeout(()=>{
+        boss.speed=0.03;
+    },1500);
+
+    msgDiv.innerText="Evelyn uses Forest Dash!";
+}
+
+
+// ================= TARGET PARTY =================
+
+let target = player;
+let bestDist = Math.hypot(
+    player.x-boss.x,
+    player.z-boss.z
+);
+
+
+for(const p of party){
+
+    if(!p.alive) continue;
+
+    const d = Math.hypot(
+        p.x-boss.x,
+        p.z-boss.z
+    );
+
+    if(d < bestDist){
+
+        bestDist = d;
+        target = p;
+
+    }
+
+}
+
+
+// ================= MOVE TO TARGET =================
+
+const dx = target.x-boss.x;
+const dz = target.z-boss.z;
+
+const dist = Math.hypot(dx,dz);
+
+
+if(dist<boss.vision){
+
+boss.x += dx/dist*boss.speed;
+boss.z += dz/dist*boss.speed;
+
+}
+
+
+boss.mesh.position.set(
+boss.x,
+0,
+boss.z
+);
+
+
+// Phase 2
+
+if(boss.hp<=300 && boss.phase===1){
+
+boss.phase=2;
+
+boss.speed=0.03;
+
+msgDiv.innerText =
+"Evelyn becomes enraged!";
+
+createEffect(
+boss.x,
+boss.z,
+0x00ff00,
+2,
+60
+);
+
+}
+
+
+if(boss.attackCd>0)
+    boss.attackCd--;
+
+
+// ================= BOSS ATTACK ALL PARTY =================
+
+if(dist<3 && boss.attackCd<=0){
+
+    boss.attackCd=80;
+
+
+    // đánh player
+    if(target.player){
+
+        damagePlayer(boss.atk);
+
+    }
+    else{
+
+        target.hp -= boss.atk;
+
+
+        if(target.hp<=0){
+
+            target.hp=0;
+            target.alive=false;
+
+
+            if(target.mesh)
+                scene.remove(target.mesh);
+
+
+            createCorpse(
+                target.x,
+                target.z
+            );
+
+
+            msgDiv.innerText =
+            target.name+" died!";
+
+        }
+
+    }
+
+
+    createEffect(
+        target.x,
+        target.z,
+        0xff0000,
+        0.8,
+        25
+    );
+
+
+    msgDiv.innerText =
+    boss.name+" attacks "+target.name+"!";
+
+}
+
+boss.aoeTick--;
+
+if(dist<6 && boss.aoeTick<=0){
+
+    boss.aoeTick=18;
+
+    for(const p of party){
+
+        if(!p.alive) continue;
+
+        const pd=Math.hypot(
+            p.x-boss.x,
+            p.z-boss.z
+        );
+
+        if(pd<6){
+
+            if(p.player)
+                damagePlayer(boss.atk*0.25);
+            else
+                p.hp-=boss.atk*0.25;
+
+        }
+    }
+
+}
+
+if(dist<2){
+
+msgDiv.innerText =
+"Evelyn swings its giant claws!";
+
+}
+
+}
+
+function updatePartyCombat(){
+
+    for(const p of party){
+
+if(!p.alive) continue;
+if(p.player) continue;
+
+        if(p.skillCd===undefined)
+            p.skillCd=0;
+
+
+        if(p.skillCd>0)
+            p.skillCd--;
+
+
+
+        // ================= SKILL PARTY =================
+
+        if(p.skillCd<=0){
+
+            let target=null;
+
+
+            // ưu tiên Evelyn
+
+            if(boss && boss.alive){
+
+                let bd=Math.hypot(
+                    boss.x-p.x,
+                    boss.z-p.z
+                );
+
+                if(bd<8)
+                    target=boss;
+
+            }
+
+
+            // nếu không có boss thì tìm enemy
+
+            if(!target){
+
+                for(const e of enemies){
+
+                    if(!e.alive) continue;
+
+
+                    let d=Math.hypot(
+                        e.x-p.x,
+                        e.z-p.z
+                    );
+
+
+                    if(d<8){
+
+                        target=e;
+                        break;
+
+                    }
+
+                }
+
+            }
+
+
+
+            if(target){
+
+                const skill = skills[p.id];
+
+
+if(skill.damage){
+
+    target.hp-=skill.damage;
+
+// Luna - Piercing Shot (mũi tên xuyên thấu)
+if(p.id==="archer"){
+
+    const dirX = target.x - p.x;
+    const dirZ = target.z - p.z;
+
+    const length = Math.hypot(dirX,dirZ);
+
+    const nx = dirX / length;
+    const nz = dirZ / length;
+
+
+    // tất cả enemy nằm trên đường tên bay
+    for(const e of enemies){
+
+        if(!e.alive || e===target) continue;
+
+
+        const vx = e.x - p.x;
+        const vz = e.z - p.z;
+
+
+        // khoảng cách theo hướng bắn
+        const forward =
+        vx * nx +
+        vz * nz;
+
+
+        // enemy ở phía trước
+        if(forward > 0 && forward < 12){
+
+            // khoảng lệch ngang so với đường tên
+            const side =
+            Math.abs(
+                vx*nz -
+                vz*nx
+            );
+
+
+            // bán kính thân mũi tên
+            if(side < 0.8){
+
+                e.hp -= skill.damage * 0.6;
+
+
+                createEffect(
+                    e.x,
+                    e.z,
+                    0x88ffff,
+                    0.25,
+                    10
+                );
+
+
+                if(e.hp<=0){
+
+                    e.alive=false;
+                    scene.remove(e.mesh);
+
+                }
+
+            }
+
+        }
+
+    }
+
+
+    // Boss cũng bị xuyên nếu đứng trên đường tên
+    if(boss && boss.alive){
+
+        const vx=boss.x-p.x;
+        const vz=boss.z-p.z;
+
+        const forward =
+        vx*nx + vz*nz;
+
+
+        const side =
+        Math.abs(
+            vx*nz -
+            vz*nx
+        );
+
+
+        if(
+            forward>0 &&
+            forward<12 &&
+            side<1
+        ){
+
+            boss.hp -= skill.damage*0.6;
+
+        }
+
+    }
+
+
+    // hiệu ứng đường tên
+    createEffect(
+        p.x + nx*6,
+        p.z + nz*6,
+        0x66ffff,
+        0.35,
+        15
+    );
+
+}
+
+if(p.id==="mage"){
+
+    if(target.blindTimer===undefined)
+        target.blindTimer=0;
+
+    target.blindTimer=180;
+
+    target.vision=6;
+
+    createEffect(
+        target.x,
+        target.z,
+        0x6622aa,
+        0.7,
+        20
+    );
+
+}
+
+    createEffect(
+        target.x,
+        target.z,
+        0xffdd55,
+        0.7,
+        20
+    );
+
+                        msgDiv.innerText =
+                        p.name+
+                        " uses "+
+                        skill.name+
+                        "!";
+
+}
+
+                if(skill.heal){
+
+                    let ally =
+                    party
+                    .filter(a=>a.alive)
+                    .sort((a,b)=>
+                    a.hp/a.maxHp -
+                    b.hp/b.maxHp
+                    )[0];
+
+
+                    if(ally){
+
+                        ally.hp=Math.min(
+                            ally.maxHp,
+                            ally.hp+skill.heal
+                        );
+
+
+                        createEffect(
+                            ally.x,
+                            ally.z,
+                            0xffffaa,
+                            0.8,
+                            25
+                        );
+
+
+                        msgDiv.innerText =
+                        p.name+
+                        " uses "+
+                        skill.name+
+                        "!";
+
+                    }
+
+                }
+
+
+                p.skillCd =
+                skill.cooldown;
+
+
+            }
+
+        }
+
+
+
+        // ================= ĐÁNH THƯỜNG EVELYN =================
+
+        if(boss && boss.alive){
+
+            let dist=Math.hypot(
+                boss.x-p.x,
+                boss.z-p.z
+            );
+
+
+            if(dist<3){
+
+                boss.hp -= p.atk*0.2;
+
+
+                createEffect(
+                    boss.x,
+                    boss.z,
+                    0xffff66,
+                    0.25,
+                    10
+                );
+
+            }
+
+        }
+
+
+
+        // ================= ĐÁNH THƯỜNG ENEMY =================
+
+        for(const e of enemies){
+
+            if(!e.alive) continue;
+
+
+            let dist=Math.hypot(
+                e.x-p.x,
+                e.z-p.z
+            );
+
+
+            if(dist<3){
+
+                e.hp -= p.atk*0.2;
+
+
+                createEffect(
+                    e.x,
+                    e.z,
+                    0xffaa55,
+                    0.25,
+                    10
+                );
+
+
+                if(e.hp<=0){
+
+                    e.alive=false;
+
+                    scene.remove(e.mesh);
+
+                }
+
+            }
+
+        }
+
+
+    }
+
+
+
+    // ================= CHECK BOSS DIE =================
+
+    if(boss && boss.hp<=0){
+
+        boss.alive=false;
+
+        scene.remove(boss.mesh);
+
+
+        gameState="victory";
+
+
+        msgDiv.innerText =
+        "VICTORY! Evelyn defeated.";
+
+
+        alert(
+            "VICTORY!"
+        );
+
+
+        location.reload();
+
+    }
+
+}
+
+function damageParty(){
+
+for(const p of party){
+
+if(!p.alive) continue;
+
+
+let enemiesNear =
+enemies.some(e=>
+e.alive &&
+Math.hypot(
+p.x-e.x,
+p.z-e.z
+)<2
+);
+
+
+if(enemiesNear){
+
+p.hp-=0.2;
+
+}
+
+
+if(p.hp<=0){
+
+p.hp=0;
+p.alive=false;
+
+scene.remove(p.mesh);
+createCorpse(p.x,p.z);
+
+msgDiv.innerText=
+p.name+" died!";
+
+}
+
+}
+
+}
+
+function bind(btn,key){
+
+    btn.ontouchstart=()=>{
+        input[key]=true;
+    };
+
+    btn.ontouchend=()=>{
+        input[key]=false;
+    };
+
+    btn.onmousedown=()=>{
+        input[key]=true;
+    };
+
+    btn.onmouseup=()=>{
+        input[key]=false;
+    };
+
+}
+
+bind(document.getElementById("up"),"up");
+bind(document.getElementById("down"),"down");
+bind(document.getElementById("left"),"left");
+bind(document.getElementById("right"),"right");
+
+// ================= BUTTON ACTIONS =================
+
+attackBtn.onclick = ()=>{
+
+    if(player.attackCd>0) return;
+
+    player.attackCd = 30;
+
+    let hit = false;
+
+    for(const e of enemies){
+
+        if(!e.alive) continue;
+
+        const dist = Math.hypot(
+            player.x-e.x,
+            player.z-e.z
+        );
+
+        if(dist<2.5){
+
+            e.hp -= 20;
+
+            createEffect(
+                e.x,
+                e.z,
+                0xffaa00,
+                0.35,
+                15
+            );
+
+            if(e.hp<=0){
+                e.alive=false;
+                scene.remove(e.mesh);
+            }
+
+            hit=true;
+        }
+    }
+
+    if(boss && boss.alive){
+
+        const dist=Math.hypot(
+            player.x-boss.x,
+            player.z-boss.z
+        );
+
+        if(dist<3){
+
+            boss.hp-=20;
+
+            createEffect(
+                boss.x,
+                boss.z,
+                0xffaa00,
+                0.45,
+                20
+            );
+
+            hit=true;
+        }
+    }
+
+    msgDiv.innerText = hit ?
+        "Sword Slash!" :
+        "Attack missed.";
+
+};
+
+dodgeBtn.onclick = ()=>{
+
+    if(player.dodgeCd>0) return;
+
+    player.dodgeCd=240;
+
+    const backDistance=3;
+
+    const nx=player.x-Math.sin(player.rot)*backDistance;
+    const nz=player.z+Math.cos(player.rot)*backDistance;
+
+    if(!checkCollision(nx,nz)){
+        player.x=nx;
+        player.z=nz;
+    }
+
+    createEffect(
+        player.x,
+        player.z,
+        0x66ccff,
+        0.8,
+        20
+    );
+
+    msgDiv.innerText="Quick Dodge!";
+};
+
+skillBtn.onclick = ()=>{
+
+    if(player.skillCd>0) return;
+
+    player.skillCd=300;
+
+    castMagic(
+        player,
+        "Focus Step"
+    );
+
+};
+
+function damagePlayer(dmg){
+
+    // Trừ overhealth trước
+    if(player.overHp > 0){
+
+        let absorbed = Math.min(
+            player.overHp,
+            dmg
+        );
+
+        player.overHp -= absorbed;
+        dmg -= absorbed;
+
+        createEffect(
+            player.x,
+            player.z,
+            0x66ccff,
+            0.5,
+            15
+        );
+    }
+
+
+    // còn sát thương thì trừ HP thật
+    if(dmg > 0){
+
+        player.hp -= dmg;
+
+        createEffect(
+            player.x,
+            player.z,
+            0xff0000,
+            0.7,
+            20
+        );
+
+    }
+
+
+    if(player.hp < 0)
+        player.hp = 0;
+
+
+    if(player.overHp < 0)
+        player.overHp = 0;
+
+
+    // đồng bộ party player
+    const pm = party.find(p=>p.player);
+
+    if(pm){
+
+        pm.hp = player.hp;
+        pm.overHp = player.overHp;
+
+    }
+
+}
+
+function gameLoop(){
+
+if(player.hp<=0){
+
+gameState="gameover";
+
+msgDiv.innerText=
+"GAME OVER";
+
+alert(
+"GAME OVER"
+);
+
+location.reload();
+
+return;
+
+}
+
+if(gameState!=="playing"){
+
+renderer.render(scene,camera);
+
+return;
+
+}
+
+if(input.up){
+
+let nx =
+player.x +
+Math.sin(player.rot)*player.speed;
+
+let nz =
+player.z -
+Math.cos(player.rot)*player.speed;
+
+
+if(!checkCollision(nx,nz)){
+
+    player.x=nx;
+    player.z=nz;
+
+}else{
+
+    if(!checkCollision(nx,player.z))
+        player.x=nx;
+
+    if(!checkCollision(player.x,nz))
+        player.z=nz;
+
+}
+
+}
+
+if(input.down){
+
+let nx =
+player.x -
+Math.sin(player.rot)*player.speed;
+
+let nz =
+player.z +
+Math.cos(player.rot)*player.speed;
+
+
+if(!checkCollision(nx,nz)){
+
+    player.x=nx;
+    player.z=nz;
+
+}else{
+
+    if(!checkCollision(nx,player.z))
+        player.x=nx;
+
+    if(!checkCollision(player.x,nz))
+        player.z=nz;
+
+}
+
+}
+
+if(input.left){
+    player.rot -= 0.05;
+}
+
+if(input.right){
+    player.rot += 0.05;
+}
+
+if(player.attackCd>0) player.attackCd--;
+
+if(player.dodgeCd>0) player.dodgeCd--;
+
+if(player.skillCd>0) player.skillCd--;
+
+for(const e of enemies){
+
+    if(e.blindTimer>0){
+
+        e.blindTimer--;
+
+        if(e.blindTimer<=0){
+            e.vision=14;
+        }
+
+    }
+
+}
+
+if(boss){
+
+    if(boss.blindTimer>0){
+
+        boss.blindTimer--;
+
+        if(boss.blindTimer<=0){
+            boss.vision=22; // hoặc tầm nhìn mặc định của boss
+        }
+
+    }
+
+}
+
+    // Update
+    updateParty();
+    updateEnemies();
+    updateBoss();
+updateMasterDaun();
+updatePartyCombat();
+damageParty();
+    updateEffects();
+    updateArea();
+    masterBlessing();
+
+    // Camera
+    camera.position.set(
+        player.x,
+        player.y,
+        player.z
+    );
+
+    camera.lookAt(
+        player.x + Math.sin(player.rot),
+        player.y,
+        player.z - Math.cos(player.rot)
+    );
+
+if(player.overHp > 0){
+
+hpDiv.innerText =
+"HP: "+
+player.hp+
+" +"+
+player.overHp+
+" / "+
+player.maxHp;
+
+}else{
+
+hpDiv.innerText =
+"HP: "+
+player.hp+
+" / "+
+player.maxHp;
+
+}
+
+    partyDiv.innerText =
+        "Party: " +
+        party.filter(p=>p.alive).length;
+
+    // Draw
+    renderer.render(scene,camera);
+
+    requestAnimationFrame(gameLoop);
+
+}
+
+buildForestEntrance();
+buildDeadForest();
+buildShrine();
+buildStatueArea();
+gameLoop();
+
+</script>
+</body>
+</html>
